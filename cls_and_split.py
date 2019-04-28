@@ -364,3 +364,157 @@ if __name__ == '__main__':
 #     # vbest_resnet_152_split_4point_aug_0108_20angle_10plus_3channle_dp02_0w_aug_reg_to_cls_01 第一次 分类 
 #     #save best model
 #     torch.save(model_ft,"output/best_resnet_18_split_0113_01.pkl")
+
+
+from __future__ import print_function, division
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.optim import lr_scheduler
+from torch.autograd import Variable
+from torchvision import  models, transforms
+import torch.nn.functional as F
+import time
+import os,cv2
+from torch.utils.data import Dataset
+# best_resnet_152_split_4point_aug_0108_20angle_10plus_3channle_dp02_0w_aug_reg_to_cls_02_fc_12epoch
+the_mode = torch.load('output/best_resnet_18_0329_finetune_nopara.pkl')
+the_mode.eval()
+the_mode = the_mode.cuda()
+data_transforms = {
+        'train': transforms.Compose([
+            #transforms.CenterCrop((128,256)),
+            transforms.Resize((64,280)),
+            #transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+        'val': transforms.Compose([
+            transforms.Resize((64,280)),
+            #transforms.Scale(256),
+            #transforms.CenterCrop((256,244)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ]),
+    }
+image_datasets1 = customData(img_path='/ImagePath',
+                                    txt_path=('./txt_file/train_finetune_0117/val.txt'),
+                                    data_transforms=data_transforms,
+                                    dataset="val")
+ds = torch.utils.data.DataLoader(image_datasets1,batch_size=batch_size,shuffle=True)
+error_list = []
+since = time.time()
+for data in ds:
+    
+    if len(error_list) > 100:
+        break
+                # get the inputs
+    inputs, labels,imgname,split_y1,split_y2 = data
+    #print(imgname,labels,split_y)
+                # wrap them in Variable
+    if True:
+        inputs = Variable(inputs.cuda())
+        #labels = Variable(labels.cuda())
+    else:
+        inputs = Variable(inputs)
+        #print(inputs.shape)
+                # zero the parameter gradients
+    
+                # forward
+                
+    outputs,vc1,vc2 = the_mode(inputs)
+    
+    softmax=F.softmax(outputs.data,dim=1)
+    
+    
+    _, preds = torch.max(outputs.data, 1)
+    score,_s = torch.max(softmax, 1)
+    _1, preds_vc1 = torch.max(vc1.data, 1)                
+    _2, preds_vc2 = torch.max(vc2.data, 1)
+    for i in range(len(vc1)):
+        tag = "only"
+        if "double" in imgname[i]:
+            tag = "dobel"
+        #print(split_y[i].numpy())
+        error_list.append((imgname[i],preds[i].item(),labels[i].item(),preds_vc1[i].view(-1).cpu().detach().numpy(),preds_vc2[i].view(-1).cpu().detach().numpy(),split_y1[i].cpu().detach().numpy(),split_y2[i].cpu().detach().numpy(),score[i].item()))
+#     for i in range(len(preds)):
+#         if preds[i].item() != labels[i].item():
+#             error_list.append((imgname[i],labels[i].item(),vc[i].item(),split_y[i].item()))
+time_escape = time.time() - since
+print("总计用时：",time_escape)
+print("均用时：",time_escape/len(error_list))
+
+import matplotlib.pyplot as plt
+%matplotlib inline
+import numpy as np
+
+#读取lena图，并显示
+def showimg(picurl):
+    lena = plt.imread(picurl)
+    
+    plt.imshow(lena)
+    plt.axis('off')
+
+    plt.show()
+    
+# def showimg_y(picurl,y,label):
+#     lena = plt.imread(picurl)
+#     if y[0] < 0:
+#         y[0] = 0.01
+#     if y[1] < 0:
+#         y[1] = 0.01
+#     if label[0] < 0:
+#         label[0] = 0.01
+#     if label[1] < 0:
+#         label[1] = 0.01
+#     #print(y,label)
+    
+#     h,w,_ = lena.shape
+#     plt.imshow(lena)
+#     plt.axis('off')
+#     plt.plot([0,w],[h*y[0],h*y[1]],color="red")
+#     plt.plot([0,w],[h*label[0],h*label[1]],color="green")
+#     plt.show()
+    
+# def showimg_y(picurl,y,label):
+#     lena = plt.imread(picurl)
+#     if y[0] < 0:
+#         y[0] = 0.01
+#     if y[2] < 0:
+#         y[2] = 0.01
+#     if label[0] < 0:
+#         label[0] = 0.01
+#     if label[2] < 0:
+#         label[2] = 0.01
+#     #print(y,label)
+    
+#     h,w,_ = lena.shape
+#     plt.imshow(lena)
+#     plt.axis('off')
+#     plt.plot([w*y[0],w*y[2]],[h*y[1],h*y[3]],color="red")
+#     plt.plot([w*label[0],w*label[2]],[h*label[1],h*label[3]],color="green")
+#     plt.show()    
+
+
+def showimg_y(picurl,y1,y2,pred,label,sp1,sp2):
+    lena = plt.imread(picurl)
+
+    
+    h,w,_ = lena.shape
+    plt.imshow(lena)
+    plt.axis('off')
+    plt.plot([0,w],[h*(sp1/32.0),h*(sp2/32.0)],color="green")
+    plt.plot([0,w],[h*(y1[0]/32.0),h*(y2[0]/32.0)],color="red")
+    plt.show() 
+    
+for img in error_list:
+    print(img)
+    print("置信度：",img[-1])
+    showimg_y(img[0],img[3],img[4],img[1],img[2],img[5],img[6])
+    
+    #showimg_y(img[0],img[2],img[3])
+    #showimg(img[0])
+
+#torch.save(the_mode.state_dict(), 'params.pkl')
+#model_object.load_state_dict(torch.load('params.pkl'))
